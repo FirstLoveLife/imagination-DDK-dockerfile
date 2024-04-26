@@ -1,0 +1,88 @@
+#+title: Readme
+
+* Why Docker/Podman
+Make life easier.
+* Why need root Docker/Podman
+some operations in chroot inside docker/podman need root permission. but I forget which operations...
+* Configure your host system
+** For Ubuntu or Debian
+#+begin_src
+# sudo apt-get install qemu qemu-user-static binfmt-support
+# sudo update-binfmts --install aarch64 /usr/bin/qemu-aarch64-static --magic '\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7\x00' --mask '\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'
+# sudo systemctl restart binfmt-support
+#+end_src
+** For Arch
+#+begin_src
+yay -S qemu-user-static-binfmt
+#+end_src
+* clone this project
+#+begin_src
+git clone -b bxs/README --single-branch ssh://lchen@ambsh-git.ambarella.com:29418/ambarella/kernel-development.git bxs_image
+cd bxs_image
+#+end_src
+* Prepare worktree
+#+begin_src
+./prepare-worktree.sh
+#+end_src
+
+* build image
+The creation of =/dev/null= under a container is not possible with rootless Podman, even with the addition of the mknod capability. This issue is also observed with rootless Docker. To solve this, it is recommended to use root Docker or root Podman.
+#+begin_src
+sudo docker build --network=host -t imgtec .
+sudo docker container create -i -t --name imgtec_container imgtec
+sudo docker container start imgtec_container
+#+end_src
+
+* nohw build Example
+=nohow= build is provided by imgtec, which can be helpful if you don't have hardware available.
+#+begin_src
+sudo docker exec imgtec_container bash -c 'export PVR_BUILD_DIR=nohw_linux && BUILD=release PVRSRV_NEED_PVR_DPF=1 PVRSRV_NEED_PVR_ASSERT=1 WINDOW_SYSTEM=nullws PVR_BUILD_DIR=nohw_linux NO_HARDWARE=1 PDUMP=0 NO_HARDWARE=1 PDUMP=0 make -j && INSTALL_TARGET=192.168.31.248 sudo -E make install'
+#+end_src
+
+* bxs build
+The ambarella_bxs folder is present in both UM and KM. To build UM and KM modules, you can try following cmd:
+#+begin_src
+IP=bxs VENDOR=ambarella RGX_BVNC=36.53.104.796 sudo -E ./build.sh
+#+end_src
+=bxs-DISCIMAGE= would be created, which contains all needed libraries/executables/modules.
+For details, please refer to Imgtec's Platform_guid.
+* bxm build
+The ambarella_bxm folder is present in both UM and KM. To build UM and KM modules, you can try following cmd:
+#+begin_src
+IP=bxm VENDOR=ambarella RGX_BVNC=36.52.104.182 sudo -E ./build.sh
+#+end_src
+=bxm-DISCIMAGE= would be created, which contains all needed libraries/executables/modules.
+For details, please refer to Imgtec's Platform_guid.
+* copy libraries to board
+You can then copy =bxs-DISCIMAGE= or =bxm-DISCIMAGE= to rootfs.
+If you are integrating the libraries/modules into sdk, you can use following command(remeber to replace path/server to your own):
+#+begin_src
+rsync -Wav --progress ./bxs-DISCIMAGE/ 10.4.8.129:/build/podman/lhome/lchen/kernel
+-xml/ambarella/prebuild/imgtec/23.1/bxs/
+#+end_src
+* start imgtec service
+Before doing anything, you should load imgtec driver/libraries:
+#+begin_src
+/etc/init.d/rc.pvr start
+#+end_src
+* Make sure your testcase link to correct glibc
+Because the testcase is cross-built, so the glibc it links to may not compatible to glibc on target board.
+You can use patchelf to change the executable's rpath and dynamic linker/loader:
+#+begin_src
+patchelf --set-interpreter /root/ld-linux-aarch64.so.1 --set-rpath /root /usr/local/bin/pvr_memory_test
+#+end_src
+
+For v23.1, the ld.so and glibc is put in 23.1/ dir, you can copy them to board's /root dir.
+* Run tests
+Firstly, you need to add shared library path if =/usr/local/lib/aarch64-linux-gnu/= is not among your libraries search path:
+#+begin_src
+export LD_LIBRARY_PATH=/usr/local/lib/aarch64-linux-gnu/
+#+end_src
+Then run your tests like =pvrdebug/pvr_memory_test=
+
+* Cleanup
+Once you have completed your work, utilize the subsequent commands to tidy up. Please be aware that any work saved within the container will be erased.
+#+begin_src
+sudo docker kill imgtec_container && sudo docker rm imgtec_container
+sudo docker rmi imgtec
+#+end_src
